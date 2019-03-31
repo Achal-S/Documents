@@ -1,0 +1,69 @@
+Problem statement:
+From time to time, we are facing a situation, where we need to pull data from one endpoint multiple times.
+This can lead towards redundancy, especially when we are sure that the requested data didn’t change on the backend.To avoid such situation, we can build (within our data-pulling service) a simple in-memory cache.
+That way, we will reduce the number of calls made to the API, so the server will need to handle less requests, and also browser won’t be forced to make to many requests, leaving more resources for other stuff.
+Limitation:
+Of course there are other, more complex and also more powerful ways of caching requests data (based on etag, local-storage etc.), but this solution is simple, requires no external libraries nor Api improvements. 
+
+
+Links:
+https://medium.com/@garfunkel61/https-medium-com-garfunkel61-angular-data-provider-services-in-memory-data-cache-c495a0ac35da
+https://medium.com/@garfunkel61/rxjs-data-cache-7e1b7cb4c8f3
+
+
+
+import { Observable } from 'rxjs';
+import 'rxjs/add/operator/map';
+import 'rxjs/add/operator/publish';
+import 'rxjs/add/observable/of';
+import 'rxjs/add/operator/shareReplay'
+
+import * as http from './http';
+import { notify } from './notify';
+import { Club } from './club.model';
+
+
+const clubCache: { [key: number]: Observable<Club> } = {};
+
+function getClub(id: number): Observable<Club> {
+  clubCache[id] = clubCache[id] || fetchClub(id);
+  return clubCache[id];
+}
+
+function fetchClub(id: number): Observable<Club> {
+  return http.get(id)
+    .map(rawData => mapClub(rawData))
+    .publish()
+    .refCount();
+}
+
+function mapClub(rawData): Club {
+  return new Club(rawData);
+}
+
+/*
+ * Simulation of usage, 6 club-components are created in the Angular app
+ * Each of the components, in it's onInit() phase requests Clubs data
+ * In the console. we shall see only 1 notify for the same components
+ * There are 3 components with id 1 -> this will give us 1 notification in the console
+ * There are 2 components with id 2 -> this will give us 1 notification in the console
+ * There is 1 components with id 5 -> this will give us 1 notification in the console
+ */
+getClub(1).subscribe(club => notify(club.id)); // First component
+getClub(1).subscribe(club => notify(club.id)); // Second component
+getClub(2).subscribe(club => notify(club.id)); // Third component
+getClub(1).subscribe(club => notify(club.id)); // Fourth component
+getClub(2).subscribe(club => notify(club.id)); // Fifth component
+getClub(5).subscribe(club => notify(club.id)); // Sixth component
+
+// Data cache containing all 3 so far request requested clubs
+console.log(clubCache)
+
+
+
+
+After mapping raw-data with Club class, we know that the returned observable is a Club class instance. 
+In the original article, we used share() method of Observable to make sure all concurrent subscriptions are using the same observable. However this time, we are not following that path, in favor to use publish() and refCount() methods.
+
+publish() — turns our regular Observable into connectable observable. Connectable observables is similar to regular, but it allows to emit values at any chosen time. That way (in our use case) new subscriptions (created by new Angular components) with fall into the same observable (docs).
+refCount() — turns connectable observable to behave like a regular Observable. It can be applied only on connectable observable, and due to the usage of this method, all the subscriptions we have will connect to the same observable (docs).
